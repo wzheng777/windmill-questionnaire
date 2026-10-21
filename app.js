@@ -21,6 +21,7 @@
     key = "windmill:" + id;
     var s = null; try { s = JSON.parse(localStorage.getItem(key)); } catch (e) {}
     state = s && s.items ? s : { step: 0, items: {}, business: {} };
+    if (!Array.isArray(state.ideas) || !state.ideas.length) state.ideas = [{}];
   }
   function getParam() { return new URLSearchParams(location.search).get("industry"); }
 
@@ -35,7 +36,9 @@
     app.innerHTML = h;
   }
 
-  function totalSteps() { return set.groups.length + 2; } // groups + business + summary
+  function totalSteps() { return set.groups.length + 3; } // groups + ideas + business + summary
+  function bizStep() { return set.groups.length + 1; }
+  function filledIdeas() { return (state.ideas || []).filter(function (i) { return i && String(i.text || "").trim(); }); }
   function progress() { return '<div class="progress"><div style="width:' + Math.round((state.step + 1) / totalSteps() * 100) + '%"></div></div><p class="muted">Step ' + (state.step + 1) + " of " + totalSteps() + "</p>"; }
   function seg(name, opts, val, label) {
     return '<div class="row"><span class="lbl">' + label + '</span><div class="seg" role="radiogroup" aria-label="' + label + '">' + opts.map(function (o) {
@@ -46,7 +49,7 @@
     return '<div class="nav"><button type="button" class="secondary" data-act="back">← Back</button><button type="button" data-act="next">' + (nextLabel || "Next →") + "</button></div>";
   }
 
-  function render() {
+  function render(keep) {
     var s = state.step, h = progress();
     if (s < set.groups.length) {
       var g = set.groups[s];
@@ -60,6 +63,16 @@
       });
       h += nav();
     } else if (s === set.groups.length) {
+      h += '<h1>Your own ideas</h1><p class="muted">Anything else you\'d like help with? Write it in your own words. Leave it blank if nothing comes to mind.</p>';
+      state.ideas.forEach(function (a, i) {
+        h += '<div class="item idea" data-idea="' + i + '"><label class="idea-lbl" for="idea' + i + '__text">Idea ' + (i + 1) + '</label>' +
+          '<input type="text" id="idea' + i + '__text" name="idea' + i + '__text" placeholder="e.g. Track which salesperson brought in each job" value="' + esc(a.text) + '">' +
+          seg("idea" + i + "__answer", ANSWERS, a.answer, "Want it?") + seg("idea" + i + "__priority", PRIORITIES, a.priority, "Priority") +
+          '<textarea name="idea' + i + '__notes" placeholder="Notes (optional)" rows="1">' + esc(a.notes) + '</textarea>' +
+          '<button type="button" class="secondary small" data-act="idea-remove" data-i="' + i + '" aria-label="Remove idea ' + (i + 1) + '">Remove</button></div>';
+      });
+      h += '<button type="button" class="secondary" data-act="idea-add">+ Add another idea</button>' + nav();
+    } else if (s === bizStep()) {
       h += '<h1>About your business</h1><form id="biz" novalidate>' + BUSINESS.map(function (f) {
         var v = esc(state.business[f.id]), lab = '<label for="b_' + f.id + '">' + esc(f.label) + (f.required ? ' <span class="req">*</span>' : "") + "</label>";
         return '<div class="field">' + lab + (f.type === "textarea"
@@ -75,11 +88,15 @@
           return "<li><strong>" + esc(a.answer) + "</strong>" + (a.priority ? " (" + esc(a.priority) + ")" : "") + " — " + esc(it.label) + (a.notes ? '<br><span class="muted">' + esc(a.notes) + "</span>" : "") + "</li>";
         }).join("") + "</ul>" : '<p class="muted">Nothing picked.</p>');
       });
+      var ideas = filledIdeas();
+      h += "<h2>Your own ideas</h2>" + (ideas.length ? '<ul class="summary">' + ideas.map(function (a) {
+        return "<li><strong>" + esc(a.answer || "No answer") + "</strong>" + (a.priority ? " (" + esc(a.priority) + ")" : "") + " — " + esc(a.text) + (a.notes ? '<br><span class="muted">' + esc(a.notes) + "</span>" : "") + "</li>";
+      }).join("") + "</ul>" : '<p class="muted">None added.</p>');
       h += "<h2>Business</h2><ul class=\"summary\">" + BUSINESS.map(function (f) { return "<li><strong>" + esc(f.label) + ":</strong> " + (esc(state.business[f.id]) || '<span class="muted">—</span>') + "</li>"; }).join("") + "</ul>";
       h += '<div id="result"></div><div class="nav"><button type="button" class="secondary" data-act="back">← Edit</button><button type="button" data-act="submit">Send to Windmill</button></div>';
     }
     app.innerHTML = h;
-    window.scrollTo(0, 0);
+    if (!keep) window.scrollTo(0, 0);
   }
 
   function flatten() {
@@ -90,6 +107,9 @@
         var a = state.items[it.id] || {};
         p[g.title + " — " + it.label] = (a.answer || "No answer") + (a.priority ? " | Priority: " + a.priority : "") + (a.notes ? " | Notes: " + a.notes : "");
       });
+    });
+    filledIdeas().forEach(function (a, i) {
+      p["Custom idea " + (i + 1) + " — " + String(a.text).trim()] = (a.answer || "No answer") + (a.priority ? " | Priority: " + a.priority : "") + (a.notes ? " | Notes: " + a.notes : "");
     });
     if (state.business.email) p._replyto = state.business.email;
     return p;
@@ -137,6 +157,7 @@
     var t = e.target, n = t.name || "";
     if (!set || !n) return;
     if (t.closest("#biz")) state.business[n] = t.value;
+    else if (/^idea\d+__/.test(n)) { var m = n.match(/^idea(\d+)__(\w+)$/); if (m && state.ideas[+m[1]]) state.ideas[+m[1]][m[2]] = t.value; }
     else { var parts = n.split("__"); if (parts.length === 2) { (state.items[parts[0]] = state.items[parts[0]] || {})[parts[1]] = t.value; } }
     save();
   }
@@ -144,8 +165,10 @@
   function onClick(e) {
     var b = e.target.closest("[data-act]"); if (!b) return;
     var act = b.getAttribute("data-act");
-    if (act === "next") { if (state.step === set.groups.length && !validBiz()) return; state.step++; save(); render(); }
+    if (act === "next") { if (state.step === bizStep() && !validBiz()) return; state.step++; save(); render(); }
     else if (act === "back") { if (state.step === 0) { location.href = location.pathname; return; } state.step--; save(); render(); }
+    else if (act === "idea-add") { state.ideas.push({}); save(); render(true); var ins = app.querySelectorAll(".idea input[type=text]"); ins[ins.length - 1].focus(); }
+    else if (act === "idea-remove") { state.ideas.splice(+b.getAttribute("data-i"), 1); if (!state.ideas.length) state.ideas.push({}); save(); render(true); }
     else if (act === "submit") submit(b);
     else if (act === "dl-txt") download("txt");
     else if (act === "dl-json") download("json");

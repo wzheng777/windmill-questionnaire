@@ -4,7 +4,7 @@ Static site (plain HTML/CSS/JS, no build step). Open `index.html` via any static
 
 - `index.html` – page shell (header with SVG windmill)
 - `style.css` – styles (mobile-first)
-- `app.js` – questionnaire engine (picker → groups → business info → review → submit)
+- `app.js` – questionnaire engine (picker → groups → "Your own ideas" (generic, all industries) → business info → review → submit)
 - `config.js` – `FORMSPREE_ENDPOINT`
 - `industries/index.js` – industry registry (picker tiles, active / coming soon)
 - `industries/<id>.js` – one question set per industry
